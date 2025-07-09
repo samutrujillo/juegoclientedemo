@@ -78,16 +78,19 @@ export default function Game() {
   const [gameStatus, setGameStatus] = useState('playing');
   const [user, setUser] = useState(null);
   
-  // CAMBIO: Reemplazar rowSelections con totalSelections
+  // CAMBIO: Reemplazar rowSelections con totalSelections y actualizar MAX_SELECTIONS a 5
   const [totalSelections, setTotalSelections] = useState(0);
   const [showPermanentModal, setShowPermanentModal] = useState(false);
-  const MAX_SELECTIONS = 3;
+  const MAX_SELECTIONS = 5; // CAMBIADO DE 3 A 5
   
   const [canSelectTiles, setCanSelectTiles] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
   const [lastSelectedTile, setLastSelectedTile] = useState(null);
   const [turnNotification, setTurnNotification] = useState('');
   const [showUnlockAlert, setShowUnlockAlert] = useState(false);
+
+  // NUEVO: Estado para persistencia del modal
+  const [hasCompletedSelections, setHasCompletedSelections] = useState(false);
 
   // Nuevos estados para el sistema de mesas
   const [tablesPlayed, setTablesPlayed] = useState(0);
@@ -204,11 +207,18 @@ export default function Game() {
         isAdmin: user.isAdmin,
         id: user.id,
         isLockedDueToScore: user.isLockedDueToScore,
-        isBlocked: user.isBlocked
+        isBlocked: user.isBlocked,
+        hasCompletedSelections: user.hasCompletedSelections // NUEVO
       });
 
       // Inicializar el estado de bloqueo por puntaje
       setIsScoreLocked(user.isLockedDueToScore || false);
+
+      // NUEVO: Inicializar estado de completado
+      setHasCompletedSelections(user.hasCompletedSelections || false);
+      if (user.hasCompletedSelections) {
+        setShowPermanentModal(true);
+      }
     }
   }, [user]);
 
@@ -226,6 +236,12 @@ export default function Game() {
       setScore(parsedUser.score || 60000);
       setLocalScore(parsedUser.score || 60000);
       setIsScoreLocked(parsedUser.isLockedDueToScore || false);
+
+      // NUEVO: Verificar si el jugador ya completó sus selecciones
+      if (parsedUser.hasCompletedSelections) {
+        setShowPermanentModal(true);
+        setHasCompletedSelections(true);
+      }
 
       // Inicializar referencia de puntuación
       prevScoreRef.current = parsedUser.score || 60000;
@@ -438,10 +454,23 @@ export default function Game() {
         }
       });
 
-      // CAMBIO: Nuevo evento para mostrar modal permanente
+      // NUEVO: Actualizar el manejo del evento showPermanentModal para persistencia
       socket.on('showPermanentModal', ({ playerId, message }) => {
         if (playerId === parsedUser.id) {
           setShowPermanentModal(true);
+          setHasCompletedSelections(true);
+          
+          // Guardar en sessionStorage para persistencia
+          try {
+            const userData = sessionStorage.getItem('user');
+            if (userData) {
+              const userObj = JSON.parse(userData);
+              userObj.hasCompletedSelections = true;
+              sessionStorage.setItem('user', JSON.stringify(userObj));
+            }
+          } catch (error) {
+            console.error('Error guardando estado de modal:', error);
+          }
         }
       });
 
@@ -469,9 +498,11 @@ export default function Game() {
           setBoard(generateLocalBoard());
         }
 
-        // CAMBIO: Reiniciar contador de selecciones
-        setTotalSelections(0);
-        setShowPermanentModal(false);
+        // CAMBIO: Solo reiniciar contador si NO ha completado las 5 fichas
+        if (!hasCompletedSelections) {
+          setTotalSelections(0);
+          setShowPermanentModal(false);
+        }
 
         // Actualizar el estado de conexión de los jugadores en la lista local
         if (connectedPlayers && Array.isArray(connectedPlayers)) {
@@ -497,15 +528,17 @@ export default function Game() {
 
         // Asegurarse de que es para nuestro usuario
         if (userId === parsedUser.id) {
-          // Limpiar estados locales del juego
-          setTotalSelections(0);
-          setCanSelectTiles(true);
-          setIsScoreLocked(false);
-          setShowPermanentModal(false);
+          // Solo limpiar estados si NO ha completado las 5 fichas
+          if (!hasCompletedSelections) {
+            setTotalSelections(0);
+            setCanSelectTiles(true);
+            setIsScoreLocked(false);
+            setShowPermanentModal(false);
 
-          // Generar nuevo tablero local fresco
-          const newBoard = generateLocalBoard();
-          setBoard(newBoard);
+            // Generar nuevo tablero local fresco
+            const newBoard = generateLocalBoard();
+            setBoard(newBoard);
+          }
 
           // Solicitar sincronización completa con el servidor
           socket.emit('syncGameState', { userId: parsedUser.id });
@@ -524,6 +557,7 @@ export default function Game() {
           setScore(60000);
           setIsScoreLocked(false);
           setShowPermanentModal(false);
+          setHasCompletedSelections(false); // NUEVO: reiniciar estado de completado
 
           // Actualizar en sessionStorage
           try {
@@ -533,6 +567,7 @@ export default function Game() {
               userObj.score = 60000;
               userObj.isBlocked = false;
               userObj.isLockedDueToScore = false;
+              userObj.hasCompletedSelections = false; // NUEVO
               sessionStorage.setItem('user', JSON.stringify(userObj));
             }
           } catch (error) {
@@ -553,6 +588,7 @@ export default function Game() {
         setCanSelectTiles(true);
         setMessage(message);
         setShowPermanentModal(false);
+        setHasCompletedSelections(false); // NUEVO: reiniciar estado de completado
 
         // Actualizar el estado de conexión de los jugadores
         if (Array.isArray(players)) {
@@ -585,7 +621,7 @@ export default function Game() {
 
         // Actualizar información visual
         setIsScoreLocked(false);
-        setUser(prev => ({ ...prev, isBlocked: false, isLockedDueToScore: false }));
+        setUser(prev => ({ ...prev, isBlocked: false, isLockedDueToScore: false, hasCompletedSelections: false }));
 
         // Actualizar en sessionStorage
         try {
@@ -595,6 +631,7 @@ export default function Game() {
             userObj.isBlocked = false;
             userObj.isLockedDueToScore = false;
             userObj.score = 60000;
+            userObj.hasCompletedSelections = false; // NUEVO
             sessionStorage.setItem('user', JSON.stringify(userObj));
           }
         } catch (error) {
@@ -613,8 +650,10 @@ export default function Game() {
           setPlayers(gameState.players || []);
           setGameStatus(gameState.status || 'playing');
 
-          // Reiniciar variables críticas y permitir explícitamente jugar
-          setCanSelectTiles(gameState.canSelectTiles !== undefined ? gameState.canSelectTiles : true);
+          // Reiniciar variables críticas y permitir explícitamente jugar SOLO si no ha completado
+          if (!hasCompletedSelections) {
+            setCanSelectTiles(gameState.canSelectTiles !== undefined ? gameState.canSelectTiles : true);
+          }
 
           // Verificar si es mi turno
           const isCurrentUserTurn = (gameState.players && gameState.players.length <= 1) ||
@@ -632,9 +671,11 @@ export default function Game() {
           }
         } else {
           console.error("forceGameStateRefresh recibió datos incompletos:", gameState);
-          // En caso de datos inválidos, generar un nuevo tablero local
-          setBoard(generateLocalBoard());
-          setCanSelectTiles(true);
+          // En caso de datos inválidos, generar un nuevo tablero local solo si no ha completado
+          if (!hasCompletedSelections) {
+            setBoard(generateLocalBoard());
+            setCanSelectTiles(true);
+          }
 
           // Si es el único jugador, darle el turno
           if (players.length <= 1) {
@@ -731,644 +772,712 @@ export default function Game() {
         }
       });
 
-      // CAMBIO: Actualizar evento tileSelected para el nuevo sistema
-      socket.on('tileSelected', ({ tileIndex, tileValue, playerId, newScore, totalSelections, soundType, playerUsername, timestamp, isRevealed }) => {
-        // Actualizar el tablero para todos los jugadores
-        setBoard(prevBoard => {
-          // Verificar que prevBoard sea un array válido
-          if (!Array.isArray(prevBoard) || prevBoard.length === 0) {
-            return prevBoard;
-          }
+      // CAMBIO: Actualizar evento tileSelected para sincronización correcta del tablero
+      socket.on('tileSelected', ({ tileIndex, tileValue, playerId, newScore, totalSelections, soundType, playerUsername, timestamp, isRevealed, updatedBoard }) => {
+        console.log(`Evento tileSelected recibido: jugador ${playerUsername} seleccionó ficha ${tileIndex} con valor ${tileValue}`);
 
-          const newBoard = [...prevBoard];
-          if (newBoard[tileIndex]) {
-            newBoard[tileIndex] = {
-              ...newBoard[tileIndex],
-              revealed: true,
-              // Usar el valor que viene del servidor, no el local
-              value: tileValue,
-              lastSelected: true,
-              selectedBy: playerUsername
-            };
-          }
-          return newBoard;
-        });
-
-        setLastSelectedTile({
-          index: tileIndex,
-          playerId: playerId,
-          playerUsername: playerUsername,
-          timestamp: timestamp
-        });
-
-        // Determinar si es el jugador actual
-        const isCurrentPlayer = playerId === parsedUser.id;
-
-        // Solo reproducir sonidos y mostrar efectos si es el jugador actual
-        if (isCurrentPlayer) {
-          // Determinar el tipo de sonido basado en el valor real
-          const isPositiveValue = tileValue > 0;
-          if (isPositiveValue) {
-            playSoundSafely(winSoundRef, 1.0);
-
-            // Activar la lluvia de monedas con un nuevo ID único
-            coinRainIdRef.current += 1;
-            setCoinRainId(coinRainIdRef.current);
-            setShowCoinRain(true);
-
-            // Programar el fin de la animación para mantener el rendimiento
-            setTimeout(() => {
-              setShowCoinRain(false);
-            }, 1500);
-          } else {
-            playSoundSafely(loseSoundRef, 1.0);
-          }
-
-          // Mostrar alerta y actualizar puntaje solo para el jugador actual
-          showPointsAlert(tileValue);
-          updateLocalScore(newScore);
-        }
-
-        // CAMBIO: Actualizar contador de selecciones
-        if (totalSelections !== undefined) {
-          setTotalSelections(totalSelections);
-        }
-      });
-
-      socket.on('turnTimeout', ({ playerId }) => {
-        if (playerId === parsedUser.id) {
-          setTimeLeft(0);
-          setCanSelectTiles(false);
-
-          if (players.length > 1) {
-            setIsYourTurn(false);
-          } else {
-            setIsYourTurn(true);
-          }
-        }
-      });
-
-      socket.on('tableLimitReached', ({ message }) => {
-        setMaxTablesReached(true);
-        setTableLockReason(message);
-      });
-
-      socket.on('tablesUnlocked', () => {
-        setMaxTablesReached(false);
-        setTableLockReason('');
-        setMessage('¡Las mesas han sido desbloqueadas!');
-        setTimeout(() => setMessage(''), 3000);
-      });
-
-      // Modificado: El evento blocked ya no redirecciona
-      socket.on('blocked', () => {
-        setMessage('Tu cuenta ha sido bloqueada por el administrador. Puedes ver el juego pero no jugar.');
-      });
-
-      socket.on('message', (newMessage) => {
-        // Filtrar mensajes relacionados con tiempo agotado y turno
-        if (!newMessage.includes('tiempo se agotó') && !newMessage.includes('turno')) {
-          setMessage(newMessage);
-          setTimeout(() => setMessage(''), 3000);
-        }
-      });
-
-      socket.on('disconnect', () => {
-        setIsConnected(false);
-      });
-
-      // Manejador para responder a pings del servidor (verificación de conexión)
-      socket.on('ping', (data, callback) => {
-        // Responder al ping para confirmar conexión
-        if (callback && typeof callback === 'function') {
-          callback({ status: 'active', userId: parsedUser.id });
-        }
-      });
-
-      // Agregar estos eventos después de los otros socket.on(...) existentes
-
-      // Evento cuando el nombre de usuario es cambiado
-      socket.on('usernameChanged', ({ newUsername, message }) => {
-        // Actualizar el usuario en sessionStorage
-        const userData = sessionStorage.getItem('user');
-        if (userData) {
-          const userObj = JSON.parse(userData);
-          userObj.username = newUsername;
-          sessionStorage.setItem('user', JSON.stringify(userObj));
-
-          // Actualizar el estado local
-          setUser(prev => ({ ...prev, username: newUsername }));
-        }
-
-        setMessage(message);
-        setTimeout(() => setMessage(''), 5000);
-      });
-
-      // Evento cuando la contraseña es cambiada
-      socket.on('passwordChanged', ({ message }) => {
-        setMessage(message);
-        setTimeout(() => setMessage(''), 5000);
-      });
-
-      return () => {
-        if (socket) {
-          socket.off('connect');
-          socket.off('connect_error');
-          socket.off('reconnect_attempt');
-          socket.off('gameState');
-          socket.off('tileSelected');
-          socket.off('tileSelectError');
-          socket.off('turnTimeout');
-          socket.off('scoreUpdate');
-          socket.off('forceScoreUpdate');
-          socket.off('directScoreUpdate');
-          socket.off('boardReset');
-          socket.off('tableLimitReached');
-          socket.off('tablesUnlocked');
-          socket.off('blocked');
-          socket.off('message');
-          socket.off('sessionClosed');
-          socket.off('tablesUpdate');
-          socket.off('playerConnectionChanged');
-          socket.off('scoreLimitReached');
-          socket.off('userUnlocked');
-          socket.off('blockStatusChanged');
-          socket.off('gameCompletelyReset');
-          socket.off('forceGameStateRefresh');
-          socket.off('forceSyncRequest');
-          socket.off('gameResetMessage');
-          socket.off('connectionStatusUpdate');
-          socket.off('ping');
-          socket.off('showPermanentModal'); // CAMBIO: Nuevo evento
-          socket.emit('saveGameState', { userId: user?.id }); // Guardar estado al salir
-          socket.emit('leaveGame');
-          socket.disconnect();
-        }
-      };
-    } catch (error) {
-      console.error('Error al procesar datos de usuario:', error);
-      router.push('/');
-    }
-  }, [router]);
-
-  // Añadir un mecanismo para detectar y solucionar problemas de interacción
-  useEffect(() => {
-    // Si el usuario no puede seleccionar fichas por más de 10 segundos y debería poder
-    let problemDetectionTimer = null;
-
-    if (isYourTurn && !canSelectTiles && !isScoreLocked && !user?.isBlocked && !maxTablesReached && !showPermanentModal) {
-      problemDetectionTimer = setTimeout(() => {
-        console.log("Detectado posible problema de interacción, intentando corregir...");
-        // Solicitar reinicio de selecciones
-        socket.emit('resetRowSelections', { userId: user.id });
-        // Solicitar verificación de estado de mesas
-        socket.emit('checkTableStatus', { userId: user.id });
-      }, 10000);
-    }
-
-    return () => {
-      if (problemDetectionTimer) {
-        clearTimeout(problemDetectionTimer);
-      }
-    };
-  }, [isYourTurn, canSelectTiles, isScoreLocked, user, maxTablesReached, showPermanentModal]);
-
-  // Efecto para el temporizador optimizado
-  useEffect(() => {
-    let timer;
-
-    if (isYourTurn && !showPermanentModal) {
-      // Iniciar siempre con 6 segundos exactos
-      setTimeLeft(6);
-      setCanSelectTiles(true);
-
-      // Reproducir sonido de turno siempre que sea tu turno
-      // (ya sea único jugador o multijugador)
-      playSoundSafely(turnSoundRef);
-
-      // Asegurar que el intervalo sea exactamente de 1 segundo
-      let previousTime = Date.now();
-
-      timer = setInterval(() => {
-        const currentTime = Date.now();
-        // Ajustar el intervalo si es necesario
-        const drift = currentTime - previousTime - 1000;
-        previousTime = currentTime;
-
-        setTimeLeft((prevTime) => {
-          const newTime = prevTime - 1;
-          console.log(`Temporizador: ${newTime} segundos (drift: ${drift}ms)`);
-
-          if (newTime <= 0) {
-            clearInterval(timer);
-            setCanSelectTiles(false);
-            return 0;
-          }
-          return newTime;
-        });
-      }, 1000);
-    } else {
-      clearInterval(timer);
-    }
-
-    return () => {
-      if (timer) {
-        clearInterval(timer);
-      }
-    };
-  }, [isYourTurn, showPermanentModal]);
-
-  // Efecto para limpiar la marca de última ficha seleccionada
-  useEffect(() => {
-    if (lastSelectedTile) {
-      const timer = setTimeout(() => {
-        setBoard(prevBoard => {
-          const newBoard = [...prevBoard];
-          if (newBoard[lastSelectedTile.index] && newBoard[lastSelectedTile.index].lastSelected) {
-            newBoard[lastSelectedTile.index] = {
-              ...newBoard[lastSelectedTile.index],
-              lastSelected: false
-            };
-          }
-          return newBoard;
-        });
-      }, 2000);
-
-      return () => clearTimeout(timer);
-    }
-  }, [lastSelectedTile]);
-
-  // CAMBIO: Función para manejar clics en fichas (nueva lógica para 3 fichas)
-  const handleTileClick = useCallback((index) => {
-    // No permitir seleccionar fichas si es administrador
-    if (user?.isAdmin) {
-      setMessage("Los administradores solo pueden observar el juego");
-      setTimeout(() => setMessage(''), 3000);
-      return;
-    }
-
-    // No permitir seleccionar fichas si está bloqueado por puntaje
-    if (isScoreLocked) {
-      setMessage("Tu cuenta está bloqueada por alcanzar 23000 puntos. Contacta al administrador.");
-      setTimeout(() => setMessage(''), 3000);
-      return;
-    }
-
-    // No permitir seleccionar fichas si el usuario está bloqueado por el administrador
-    if (user?.isBlocked) {
-      setMessage("Tu cuenta está bloqueada. Puedes ver el juego pero no jugar.");
-      setTimeout(() => setMessage(''), 3000);
-      return;
-    }
-
-    // No permitir seleccionar fichas si se alcanzó el límite de mesas
-    if (maxTablesReached) {
-      setMessage(`Límite de mesas alcanzado. ${tableLockReason}`);
-      setTimeout(() => setMessage(''), 3000);
-      return;
-    }
-
-    // No permitir seleccionar fichas si ya se mostró el modal permanente
-    if (showPermanentModal) {
-      return;
-    }
-
-    // Validar que haya un tablero válido
-    if (!Array.isArray(board) || board.length === 0) {
-      console.error("El tablero no es válido");
-      setMessage("Error: El tablero no es válido. Recargando...");
-      // Solicitar sincronización de estado para obtener un tablero válido
-      if (socket && socket.connected) {
-        socket.emit('syncGameState', { userId: user.id });
-      }
-      setTimeout(() => setMessage(''), 3000);
-      return;
-    }
-
-    // Validar que el índice sea válido
-    if (index < 0 || index >= board.length) {
-      console.error(`Índice de ficha inválido: ${index}`);
-      return;
-    }
-
-    // Validar que la ficha existe en el tablero
-    if (!board[index]) {
-      console.error(`La ficha en el índice ${index} no existe`);
-      return;
-    }
-
-    // Verificar si ya está revelada
-    if (board[index].revealed) {
-      console.log("Esta ficha ya está revelada");
-      return;
-    }
-
-    if (!canSelectTiles) {
-      setMessage("¡No puedes seleccionar más fichas en este turno!");
-      setTimeout(() => setMessage(''), 2000);
-      return;
-    }
-
-    if (!isYourTurn && players.length > 1) {
-      setMessage("¡Espera tu turno!");
-      setTimeout(() => setMessage(''), 2000);
-      return;
-    }
-
-    if (timeLeft <= 0) {
-      setMessage("¡Tiempo agotado para este turno!");
-      setTimeout(() => setMessage(''), 2000);
-      return;
-    }
-
-    // CAMBIO: Verificar si ya se seleccionaron 3 fichas en total
-    if (totalSelections >= MAX_SELECTIONS) {
-      setMessage(`¡Ya seleccionaste las ${MAX_SELECTIONS} fichas permitidas!`);
-      setTimeout(() => setMessage(''), 2000);
-      return;
-    }
-
-    const tileValue = board[index]?.value || 0;
-    if (!board[index]?.revealed) {
-      // IMPORTANTE: Usar setState con callback para asegurar que se base en el valor actual
-      setLocalScore(prevScore => {
-        const newScore = prevScore + tileValue;
-
-        // Guardar en sessionStorage de manera segura
-        try {
-          const userData = sessionStorage.getItem('user');
-          if (userData) {
-            const userObj = JSON.parse(userData);
-            userObj.score = newScore;
-            sessionStorage.setItem('user', JSON.stringify(userObj));
-            console.log('Puntaje local actualizado en sessionStorage:', newScore);
-          }
-        } catch (error) {
-          console.error('Error actualizando sessionStorage:', error);
-        }
-
-        return newScore;
-      });
-
-      // Actualizar el tablero localmente para feedback inmediato
-      setBoard(prevBoard => {
-        const newBoard = [...prevBoard];
-        if (newBoard[index]) {
-          newBoard[index] = {
-            ...newBoard[index],
-            revealed: true,
-            lastSelected: true
-          };
-        }
-        return newBoard;
-      });
-
-      // CAMBIO: Actualizar contador total y verificar si se debe mostrar el modal
-      setTotalSelections(prev => {
-        const newTotal = prev + 1;
-        
-        // Si llegó a 3, mostrar modal permanente
-        if (newTotal >= MAX_SELECTIONS) {
-          setShowPermanentModal(true);
-        }
-        
-        return newTotal;
-      });
-    }
-
-    // Emisión al servidor con información completa
-    socket.emit('selectTile', {
-      tileIndex: index,
-      currentScore: localScore // Enviar el puntaje actual para verificación
-    });
-  }, [board, canSelectTiles, isYourTurn, timeLeft, totalSelections, localScore, maxTablesReached, tableLockReason, socket, isScoreLocked, user, players, showPermanentModal]);
-
-  // Esta función debe ir en la sección de funciones de tu componente
-  const handleUnlockAllTables = () => {
-    if (socket && socket.connected) {
-      setMessage('Desbloqueando mesas para todos los jugadores...');
-      socket.emit('unlockAllTables', {}, (response) => {
-        if (response && response.success) {
-          setMessage('Todas las mesas han sido desbloqueadas');
-          setShowUnlockAlert(false);
-          setMaxTablesReached(false);
-          setTableLockReason('');
-          setTimeout(() => setMessage(''), 3000);
-        } else {
-          setMessage('Error al desbloquear mesas');
-          setTimeout(() => setMessage(''), 3000);
-        }
-      });
-    }
-  };
-
-  // CAMBIO: Memoizar el tablero para evitar re-renderizados innecesarios (nueva lógica de disabled)
-  const memoizedBoard = useMemo(() => (
-    Array.isArray(board) && board.length > 0 ? (
-      board.map((tile, index) => (
-        <Tile
-          key={index}
-          index={index}
-          revealed={tile?.revealed || false}
-          value={tile?.value || 0}
-          onClick={() => handleTileClick(index)}
-          disabled={
-            tile?.revealed ||
-            !canSelectTiles ||
-            timeLeft <= 0 ||
-            totalSelections >= MAX_SELECTIONS ||
-            showPermanentModal ||
-            maxTablesReached ||
-            isScoreLocked ||
-            user?.isBlocked ||
-            user?.isAdmin
-          }
-          lastSelected={lastSelectedTile?.index === index}
-          selectedBy={tile?.selectedBy}
-          currentUsername={user?.username} // Añadido para resaltar fichas del jugador actual
-        />
-      ))
-    ) : (
-      <div className="loading-message">
-        Cargando tablero...
-        <button
-          onClick={() => {
-            if (socket) {
-              socket.emit('joinGame');
+        // CORRECCIÓN CRÍTICA: Actualizar el tablero completo para todos los jugadores
+        if (updatedBoard && Array.isArray(updatedBoard)) {
+          setBoard(prevBoard => {
+            const newBoard = [...prevBoard];
+            // Actualizar todo el tablero con la información del servidor
+            for (let i = 0; i < Math.min(newBoard.length, updatedBoard.length); i++) {
+              if (updatedBoard[i].revealed) {
+                newBoard[i] = {
+                  ...newBoard[i],
+                  revealed: true,
+                  selectedBy: updatedBoard[i].selectedBy,
+                  value: updatedBoard[i].value,
+                  lastSelected: i === tileIndex // Marcar solo la ficha recién seleccionada
+                };
+              }
             }
-          }}
-          className="retry-button"
-        >
-          Reintentar
-        </button>
-      </div>
-    )
-  ), [board, canSelectTiles, timeLeft, totalSelections, lastSelectedTile, maxTablesReached, isScoreLocked, user, handleTileClick, showPermanentModal]);
+            return newBoard;
+          });
+        } else {
+          // Fallback: actualizar solo la ficha específica
+          setBoard(prevBoard => {
+            // Verificar que prevBoard sea un array válido
+            if (!Array.isArray(prevBoard) || prevBoard.length === 0) {
+              return prevBoard;
+            }
 
-  if (!user) {
-    return <div className="loading">Cargando...</div>;
-  }
+            const newBoard = [...prevBoard];
+            if (newBoard[tileIndex]) {
+              newBoard[tileIndex] = {
+                ...newBoard[tileIndex],
+               revealed: true,
+               value: tileValue,
+               lastSelected: true,
+               selectedBy: playerUsername
+             };
+           }
+           return newBoard;
+         });
+       }
 
-  return (
-    <>
-      {/* Componente para ocultar el logo programáticamente */}
-      <HideLogoEffect />
+       setLastSelectedTile({
+         index: tileIndex,
+         playerId: playerId,
+         playerUsername: playerUsername,
+         timestamp: timestamp
+       });
 
-      {/* Componente de lluvia de monedas con clave única */}
-      {showCoinRain && (
-        <CoinRain
-          key={`coin-rain-${coinRainId}`}
-          active={true}
-          onComplete={handleCoinRainComplete}
-        />
-      )}
+       // Determinar si es el jugador actual
+       const isCurrentPlayer = playerId === parsedUser.id;
 
-      {(user?.isAdmin || user?.username?.toLowerCase() === "admin") && (
-        <button
-          className="admin-panel-button"
-          onClick={handleAdminPanel}
-        >
-          Panel de Admin
-        </button>
-      )}
+       // Solo reproducir sonidos y mostrar efectos si es el jugador actual
+       if (isCurrentPlayer) {
+         // Determinar el tipo de sonido basado en el valor real
+         const isPositiveValue = tileValue > 0;
+         if (isPositiveValue) {
+           playSoundSafely(winSoundRef, 1.0);
 
-      <div className="game-container game-page">
-        <audio ref={winSoundRef} src="/sounds/win.mp3" preload="auto"></audio>
-        <audio ref={loseSoundRef} src="/sounds/lose.mp3" preload="auto"></audio>
-        <audio ref={turnSoundRef} src="/sounds/turno.mp3" preload="auto"></audio>
+           // Activar la lluvia de monedas con un nuevo ID único
+           coinRainIdRef.current += 1;
+           setCoinRainId(coinRainIdRef.current);
+           setShowCoinRain(true);
 
-        {/* Restaurar las alertas de puntos, pero solo para el jugador actual */}
-        {showAlert && (
-          <div className={`points-alert ${alertType}`}>
-            {alertMessage}
-          </div>
-        )}
+           // Programar el fin de la animación para mantener el rendimiento
+           setTimeout(() => {
+             setShowCoinRain(false);
+           }, 1500);
+         } else {
+           playSoundSafely(loseSoundRef, 1.0);
+         }
 
-        <div className="game-info">
-          <div className="game-header">
-            <h2>Jugador: {user?.username}</h2>
-            <button className="logout-button" onClick={handleLogout}>
-              Cerrar Sesión
-            </button>
-          </div>
+         // Mostrar alerta y actualizar puntaje solo para el jugador actual
+         showPointsAlert(tileValue);
+         updateLocalScore(newScore);
 
-          {isConnected ? (
-            <div className="connection-status connected">Conectado al servidor</div>
-          ) : (
-            <div className="connection-status disconnected">Desconectado del servidor</div>
-          )}
-        </div>
+         // NUEVO: Actualizar contador de selecciones solo para el jugador actual
+         if (totalSelections !== undefined) {
+           setTotalSelections(totalSelections);
+           
+           // Verificar si completó las 5 fichas
+           if (totalSelections >= MAX_SELECTIONS) {
+             console.log(`He completado ${MAX_SELECTIONS} fichas, activando modal permanente`);
+             setShowPermanentModal(true);
+             setHasCompletedSelections(true);
+             
+             // Guardar en sessionStorage
+             try {
+               const userData = sessionStorage.getItem('user');
+               if (userData) {
+                 const userObj = JSON.parse(userData);
+                 userObj.hasCompletedSelections = true;
+                 sessionStorage.setItem('user', JSON.stringify(userObj));
+               }
+             } catch (error) {
+               console.error('Error guardando estado:', error);
+             }
+           }
+         }
+       } else {
+         // Si no es el jugador actual, solo actualizar visualmente el tablero
+         console.log(`${playerUsername} seleccionó una ficha, actualizando tablero visualmente`);
+       }
+     });
 
-        {/* Mesa y turno en la parte superior */}
-        <div className="game-status-bar">
-          <div className="table-info">
-            Mesa {currentTableNumber}
-            <div className="table-amount">15.000</div>
-          </div>
-          <div className={`turn-status ${isYourTurn ? 'your-turn-indicator' : 'wait-turn-indicator'}`}>
-            {isYourTurn ? "Tu turno" : "Espere su turno"}
-          </div>
-        </div>
+     socket.on('turnTimeout', ({ playerId }) => {
+       if (playerId === parsedUser.id) {
+         setTimeLeft(0);
+         setCanSelectTiles(false);
 
-        {/* Puntaje después de mesa y turno */}
-        <div className="game-score">
-          Puntaje: {localScore}
-        </div>
+         if (players.length > 1) {
+           setIsYourTurn(false);
+         } else {
+           setIsYourTurn(true);
+         }
+       }
+     });
 
-        {/* Contador de tiempo antes del tablero */}
-        <div className="time-display">
-          Tiempo: <span className={`timer-value ${timeLeft === 0 ? 'time-up' : ''}`}>{timeLeft}</span> segundos
-        </div>
+     socket.on('tableLimitReached', ({ message }) => {
+       setMaxTablesReached(true);
+       setTableLockReason(message);
+     });
 
-        {/* CAMBIO: Nuevo contador de selecciones */}
-        <div className="selections-info">
-          Fichas seleccionadas: {totalSelections}/{MAX_SELECTIONS}
-        </div>
+     socket.on('tablesUnlocked', () => {
+       setMaxTablesReached(false);
+       setTableLockReason('');
+       setMessage('¡Las mesas han sido desbloqueadas!');
+       setTimeout(() => setMessage(''), 3000);
+     });
 
-        {/* Añade esto DESPUÉS del div time-display */}
-        {showUnlockAlert && (
-          <div className="table-lock-alert">
-            <p>Por seguridad se bloqueó la mesa. Haz click en desbloquear mesa.</p>
-            <button
-              onClick={handleUnlockAllTables}
-              className="unlock-all-tables-btn"
-            >
-              Desbloquear mesa
-            </button>
-          </div>
-        )}
+     // Modificado: El evento blocked ya no redirecciona
+     socket.on('blocked', () => {
+       setMessage('Tu cuenta ha sido bloqueada por el administrador. Puedes ver el juego pero no jugar.');
+     });
 
-        {/* Mensajes de bloqueo */}
-        {isScoreLocked && (
-          <div className="score-lock-banner">
-            Tu cuenta está bloqueada por alcanzar 23000 puntos. Contacta al administrador.
-          </div>
-        )}
+     socket.on('message', (newMessage) => {
+       // Filtrar mensajes relacionados con tiempo agotado y turno
+       if (!newMessage.includes('tiempo se agotó') && !newMessage.includes('turno')) {
+         setMessage(newMessage);
+         setTimeout(() => setMessage(''), 3000);
+       }
+     });
 
-        {user?.isBlocked && (
-          <div className="score-lock-banner">
-            Tu cuenta está bloqueada por el administrador. Puedes ver el juego pero no jugar.
-          </div>
-        )}
+     socket.on('disconnect', () => {
+       setIsConnected(false);
+     });
 
-        {user?.isAdmin && (
-          <div className="admin-info-banner">
-            Modo administrador: Solo puedes observar el juego.
-          </div>
-        )}
+     // Manejador para responder a pings del servidor (verificación de conexión)
+     socket.on('ping', (data, callback) => {
+       // Responder al ping para confirmar conexión
+       if (callback && typeof callback === 'function') {
+         callback({ status: 'active', userId: parsedUser.id });
+       }
+     });
 
-        {message && <div className="message">{message}</div>}
+     // Agregar estos eventos después de los otros socket.on(...) existentes
 
-        {/* Tablero de juego */}
-        <div className="game-board">
-          {memoizedBoard}
-        </div>
+     // Evento cuando el nombre de usuario es cambiado
+     socket.on('usernameChanged', ({ newUsername, message }) => {
+       // Actualizar el usuario en sessionStorage
+       const userData = sessionStorage.getItem('user');
+       if (userData) {
+         const userObj = JSON.parse(userData);
+         userObj.username = newUsername;
+         sessionStorage.setItem('user', JSON.stringify(userObj));
 
-        {/* Jugador actual */}
-        {currentPlayer && (
-          <div className="current-player">
-            Jugador actual: <span className="current-player-name">{currentPlayer.username}</span>
-          </div>
-        )}
+         // Actualizar el estado local
+         setUser(prev => ({ ...prev, username: newUsername }));
+       }
 
-        {/* Lista de jugadores conectados */}
-        <div className="players-section">
-          <h3>Jugadores conectados</h3>
-          <PlayerList players={players} currentPlayerId={currentPlayer?.id} />
-        </div>
+       setMessage(message);
+       setTimeout(() => setMessage(''), 5000);
+     });
 
-        {showAdminModal && (
-          <AdminButton
-            onClose={() => setShowAdminModal(false)}
-            socket={socket}
-          />
-        )}
+     // Evento cuando la contraseña es cambiada
+     socket.on('passwordChanged', ({ message }) => {
+       setMessage(message);
+       setTimeout(() => setMessage(''), 5000);
+     });
 
-        {/* Botón de WhatsApp */}
-        <WhatsAppButton phoneNumber="5492945552523" />
+     return () => {
+       if (socket) {
+         socket.off('connect');
+         socket.off('connect_error');
+         socket.off('reconnect_attempt');
+         socket.off('gameState');
+         socket.off('tileSelected');
+         socket.off('tileSelectError');
+         socket.off('turnTimeout');
+         socket.off('scoreUpdate');
+         socket.off('forceScoreUpdate');
+         socket.off('directScoreUpdate');
+         socket.off('boardReset');
+         socket.off('tableLimitReached');
+         socket.off('tablesUnlocked');
+         socket.off('blocked');
+         socket.off('message');
+         socket.off('sessionClosed');
+         socket.off('tablesUpdate');
+         socket.off('playerConnectionChanged');
+         socket.off('scoreLimitReached');
+         socket.off('userUnlocked');
+         socket.off('blockStatusChanged');
+         socket.off('gameCompletelyReset');
+         socket.off('forceGameStateRefresh');
+         socket.off('forceSyncRequest');
+         socket.off('gameResetMessage');
+         socket.off('connectionStatusUpdate');
+         socket.off('ping');
+         socket.off('showPermanentModal'); // CAMBIO: Nuevo evento
+         socket.off('usernameChanged');
+         socket.off('passwordChanged');
+         socket.emit('saveGameState', { userId: user?.id }); // Guardar estado al salir
+         socket.emit('leaveGame');
+         socket.disconnect();
+       }
+     };
+   } catch (error) {
+     console.error('Error al procesar datos de usuario:', error);
+     router.push('/');
+   }
+ }, [router]);
 
-        {/* CAMBIO: Modal permanente que no se puede cerrar */}
-        {showPermanentModal && (
-          <div className="permanent-modal-overlay">
-            <div className="permanent-modal">
-              <div className="modal-content">
-                <h2>¡Gracias por jugar!</h2>
-                <p>Para jugar en nuestro juego real escríbenos en WhatsApp y te brindaremos toda la información</p>
-                <div className="whatsapp-contact">
-                  <a 
-                    href="https://wa.me/5492945552523" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="whatsapp-link"
-                  >
-                    📱 Contactar por WhatsApp
-                  </a>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </>
-  );
+ // Añadir un mecanismo para detectar y solucionar problemas de interacción
+ useEffect(() => {
+   // Si el usuario no puede seleccionar fichas por más de 10 segundos y debería poder
+   let problemDetectionTimer = null;
+
+   if (isYourTurn && !canSelectTiles && !isScoreLocked && !user?.isBlocked && !maxTablesReached && !showPermanentModal && !hasCompletedSelections) {
+     problemDetectionTimer = setTimeout(() => {
+       console.log("Detectado posible problema de interacción, intentando corregir...");
+       // Solicitar reinicio de selecciones
+       socket.emit('resetRowSelections', { userId: user.id });
+       // Solicitar verificación de estado de mesas
+       socket.emit('checkTableStatus', { userId: user.id });
+     }, 10000);
+   }
+
+   return () => {
+     if (problemDetectionTimer) {
+       clearTimeout(problemDetectionTimer);
+     }
+   };
+ }, [isYourTurn, canSelectTiles, isScoreLocked, user, maxTablesReached, showPermanentModal, hasCompletedSelections]);
+
+ // Efecto para el temporizador optimizado
+ useEffect(() => {
+   let timer;
+
+   if (isYourTurn && !showPermanentModal && !hasCompletedSelections) {
+     // Iniciar siempre con 6 segundos exactos
+     setTimeLeft(6);
+     setCanSelectTiles(true);
+
+     // Reproducir sonido de turno siempre que sea tu turno
+     // (ya sea único jugador o multijugador)
+     playSoundSafely(turnSoundRef);
+
+     // Asegurar que el intervalo sea exactamente de 1 segundo
+     let previousTime = Date.now();
+
+     timer = setInterval(() => {
+       const currentTime = Date.now();
+       // Ajustar el intervalo si es necesario
+       const drift = currentTime - previousTime - 1000;
+       previousTime = currentTime;
+
+       setTimeLeft((prevTime) => {
+         const newTime = prevTime - 1;
+         console.log(`Temporizador: ${newTime} segundos (drift: ${drift}ms)`);
+
+         if (newTime <= 0) {
+           clearInterval(timer);
+           setCanSelectTiles(false);
+           return 0;
+         }
+         return newTime;
+       });
+     }, 1000);
+   } else {
+     clearInterval(timer);
+   }
+
+   return () => {
+     if (timer) {
+       clearInterval(timer);
+     }
+   };
+ }, [isYourTurn, showPermanentModal, hasCompletedSelections]);
+
+ // Efecto para limpiar la marca de última ficha seleccionada
+ useEffect(() => {
+   if (lastSelectedTile) {
+     const timer = setTimeout(() => {
+       setBoard(prevBoard => {
+         const newBoard = [...prevBoard];
+         if (newBoard[lastSelectedTile.index] && newBoard[lastSelectedTile.index].lastSelected) {
+           newBoard[lastSelectedTile.index] = {
+             ...newBoard[lastSelectedTile.index],
+             lastSelected: false
+           };
+         }
+         return newBoard;
+       });
+     }, 2000);
+
+     return () => clearTimeout(timer);
+   }
+ }, [lastSelectedTile]);
+
+ // CAMBIO: Función para manejar clics en fichas (nueva lógica para 5 fichas)
+ const handleTileClick = useCallback((index) => {
+   // No permitir seleccionar fichas si es administrador
+   if (user?.isAdmin) {
+     setMessage("Los administradores solo pueden observar el juego");
+     setTimeout(() => setMessage(''), 3000);
+     return;
+   }
+
+   // No permitir seleccionar fichas si está bloqueado por puntaje
+   if (isScoreLocked) {
+     setMessage("Tu cuenta está bloqueada por alcanzar 23000 puntos. Contacta al administrador.");
+     setTimeout(() => setMessage(''), 3000);
+     return;
+   }
+
+   // No permitir seleccionar fichas si el usuario está bloqueado por el administrador
+   if (user?.isBlocked) {
+     setMessage("Tu cuenta está bloqueada. Puedes ver el juego pero no jugar.");
+     setTimeout(() => setMessage(''), 3000);
+     return;
+   }
+
+   // No permitir seleccionar fichas si se alcanzó el límite de mesas
+   if (maxTablesReached) {
+     setMessage(`Límite de mesas alcanzado. ${tableLockReason}`);
+     setTimeout(() => setMessage(''), 3000);
+     return;
+   }
+
+   // No permitir seleccionar fichas si ya se mostró el modal permanente
+   if (showPermanentModal || hasCompletedSelections) {
+     return;
+   }
+
+   // Validar que haya un tablero válido
+   if (!Array.isArray(board) || board.length === 0) {
+     console.error("El tablero no es válido");
+     setMessage("Error: El tablero no es válido. Recargando...");
+     // Solicitar sincronización de estado para obtener un tablero válido
+     if (socket && socket.connected) {
+       socket.emit('syncGameState', { userId: user.id });
+     }
+     setTimeout(() => setMessage(''), 3000);
+     return;
+   }
+
+   // Validar que el índice sea válido
+   if (index < 0 || index >= board.length) {
+     console.error(`Índice de ficha inválido: ${index}`);
+     return;
+   }
+
+   // Validar que la ficha existe en el tablero
+   if (!board[index]) {
+     console.error(`La ficha en el índice ${index} no existe`);
+     return;
+   }
+
+   // Verificar si ya está revelada
+   if (board[index].revealed) {
+     console.log("Esta ficha ya está revelada");
+     return;
+   }
+
+   if (!canSelectTiles) {
+     setMessage("¡No puedes seleccionar más fichas en este turno!");
+     setTimeout(() => setMessage(''), 2000);
+     return;
+   }
+
+   if (!isYourTurn && players.length > 1) {
+     setMessage("¡Espera tu turno!");
+     setTimeout(() => setMessage(''), 2000);
+     return;
+   }
+
+   if (timeLeft <= 0) {
+     setMessage("¡Tiempo agotado para este turno!");
+     setTimeout(() => setMessage(''), 2000);
+     return;
+   }
+
+   // CAMBIO: Verificar si ya se seleccionaron 5 fichas en total
+   if (totalSelections >= MAX_SELECTIONS) {
+     setMessage(`¡Ya seleccionaste las ${MAX_SELECTIONS} fichas permitidas!`);
+     setTimeout(() => setMessage(''), 2000);
+     return;
+   }
+
+   const tileValue = board[index]?.value || 0;
+   if (!board[index]?.revealed) {
+     // IMPORTANTE: Usar setState con callback para asegurar que se base en el valor actual
+     setLocalScore(prevScore => {
+       const newScore = prevScore + tileValue;
+
+       // Guardar en sessionStorage de manera segura
+       try {
+         const userData = sessionStorage.getItem('user');
+         if (userData) {
+           const userObj = JSON.parse(userData);
+           userObj.score = newScore;
+           sessionStorage.setItem('user', JSON.stringify(userObj));
+           console.log('Puntaje local actualizado en sessionStorage:', newScore);
+         }
+       } catch (error) {
+         console.error('Error actualizando sessionStorage:', error);
+       }
+
+       return newScore;
+     });
+
+     // Actualizar el tablero localmente para feedback inmediato SOLO visualmente
+     setBoard(prevBoard => {
+       const newBoard = [...prevBoard];
+       if (newBoard[index]) {
+         newBoard[index] = {
+           ...newBoard[index],
+           // NO marcar como revealed aquí, esperar confirmación del servidor
+           lastSelected: true // Solo marcar como recién seleccionada para feedback visual
+         };
+       }
+       return newBoard;
+     });
+
+     // CAMBIO: Actualizar contador total y verificar si se debe mostrar el modal
+     setTotalSelections(prev => {
+       const newTotal = prev + 1;
+       
+       // Si llegó a 5, mostrar modal permanente
+       if (newTotal >= MAX_SELECTIONS) {
+         setShowPermanentModal(true);
+         setHasCompletedSelections(true);
+         
+         // Guardar en sessionStorage
+         try {
+           const userData = sessionStorage.getItem('user');
+           if (userData) {
+             const userObj = JSON.parse(userData);
+             userObj.hasCompletedSelections = true;
+             sessionStorage.setItem('user', JSON.stringify(userObj));
+           }
+         } catch (error) {
+           console.error('Error guardando estado:', error);
+         }
+       }
+       
+       return newTotal;
+     });
+   }
+
+   // Emisión al servidor con información completa
+   socket.emit('selectTile', {
+     tileIndex: index,
+     currentScore: localScore // Enviar el puntaje actual para verificación
+   });
+ }, [board, canSelectTiles, isYourTurn, timeLeft, totalSelections, localScore, maxTablesReached, tableLockReason, socket, isScoreLocked, user, players, showPermanentModal, hasCompletedSelections]);
+
+ // Esta función debe ir en la sección de funciones de tu componente
+ const handleUnlockAllTables = () => {
+   if (socket && socket.connected) {
+     setMessage('Desbloqueando mesas para todos los jugadores...');
+     socket.emit('unlockAllTables', {}, (response) => {
+       if (response && response.success) {
+         setMessage('Todas las mesas han sido desbloqueadas');
+         setShowUnlockAlert(false);
+         setMaxTablesReached(false);
+         setTableLockReason('');
+         setTimeout(() => setMessage(''), 3000);
+       } else {
+         setMessage('Error al desbloquear mesas');
+         setTimeout(() => setMessage(''), 3000);
+       }
+     });
+   }
+ };
+
+ // CAMBIO: Memoizar el tablero para evitar re-renderizados innecesarios (nueva lógica de disabled)
+ const memoizedBoard = useMemo(() => (
+   Array.isArray(board) && board.length > 0 ? (
+     board.map((tile, index) => (
+       <Tile
+         key={index}
+         index={index}
+         revealed={tile?.revealed || false}
+         value={tile?.value || 0}
+         onClick={() => handleTileClick(index)}
+         disabled={
+           tile?.revealed ||
+           !canSelectTiles ||
+           timeLeft <= 0 ||
+           totalSelections >= MAX_SELECTIONS ||
+           showPermanentModal ||
+           hasCompletedSelections ||
+           maxTablesReached ||
+           isScoreLocked ||
+           user?.isBlocked ||
+           user?.isAdmin
+         }
+         lastSelected={lastSelectedTile?.index === index}
+         selectedBy={tile?.selectedBy}
+         currentUsername={user?.username} // Añadido para resaltar fichas del jugador actual
+       />
+     ))
+   ) : (
+     <div className="loading-message">
+       Cargando tablero...
+       <button
+         onClick={() => {
+           if (socket) {
+             socket.emit('joinGame');
+           }
+         }}
+         className="retry-button"
+       >
+         Reintentar
+       </button>
+     </div>
+   )
+ ), [board, canSelectTiles, timeLeft, totalSelections, lastSelectedTile, maxTablesReached, isScoreLocked, user, handleTileClick, showPermanentModal, hasCompletedSelections]);
+
+ if (!user) {
+   return <div className="loading">Cargando...</div>;
+ }
+
+ return (
+   <>
+     {/* Componente para ocultar el logo programáticamente */}
+     <HideLogoEffect />
+
+     {/* Componente de lluvia de monedas con clave única */}
+     {showCoinRain && (
+       <CoinRain
+         key={`coin-rain-${coinRainId}`}
+         active={true}
+         onComplete={handleCoinRainComplete}
+       />
+     )}
+
+     {(user?.isAdmin || user?.username?.toLowerCase() === "admin") && (
+       <button
+         className="admin-panel-button"
+         onClick={handleAdminPanel}
+       >
+         Panel de Admin
+       </button>
+     )}
+
+     <div className="game-container game-page">
+       <audio ref={winSoundRef} src="/sounds/win.mp3" preload="auto"></audio>
+       <audio ref={loseSoundRef} src="/sounds/lose.mp3" preload="auto"></audio>
+       <audio ref={turnSoundRef} src="/sounds/turno.mp3" preload="auto"></audio>
+
+       {/* Restaurar las alertas de puntos, pero solo para el jugador actual */}
+       {showAlert && (
+         <div className={`points-alert ${alertType}`}>
+           {alertMessage}
+         </div>
+       )}
+
+       <div className="game-info">
+         <div className="game-header">
+           <h2>Jugador: {user?.username}</h2>
+           <button className="logout-button" onClick={handleLogout}>
+             Cerrar Sesión
+           </button>
+         </div>
+
+         {isConnected ? (
+           <div className="connection-status connected">Conectado al servidor</div>
+         ) : (
+           <div className="connection-status disconnected">Desconectado del servidor</div>
+         )}
+       </div>
+
+       {/* Mesa y turno en la parte superior */}
+       <div className="game-status-bar">
+         <div className="table-info">
+           Mesa {currentTableNumber}
+           <div className="table-amount">15.000</div>
+         </div>
+         <div className={`turn-status ${isYourTurn ? 'your-turn-indicator' : 'wait-turn-indicator'}`}>
+           {isYourTurn ? "Tu turno" : "Espere su turno"}
+         </div>
+       </div>
+
+       {/* Puntaje después de mesa y turno */}
+       <div className="game-score">
+         Puntaje: {localScore}
+       </div>
+
+       {/* Contador de tiempo antes del tablero */}
+       <div className="time-display">
+         Tiempo: <span className={`timer-value ${timeLeft === 0 ? 'time-up' : ''}`}>{timeLeft}</span> segundos
+       </div>
+
+       {/* CAMBIO: Nuevo contador de selecciones para 5 fichas */}
+       <div className="selections-info">
+         Fichas seleccionadas: {totalSelections}/{MAX_SELECTIONS}
+       </div>
+
+       {/* Añade esto DESPUÉS del div time-display */}
+       {showUnlockAlert && (
+         <div className="table-lock-alert">
+           <p>Por seguridad se bloqueó la mesa. Haz click en desbloquear mesa.</p>
+           <button
+             onClick={handleUnlockAllTables}
+             className="unlock-all-tables-btn"
+           >
+             Desbloquear mesa
+           </button>
+         </div>
+       )}
+
+       {/* Mensajes de bloqueo */}
+       {isScoreLocked && (
+         <div className="score-lock-banner">
+           Tu cuenta está bloqueada por alcanzar 23000 puntos. Contacta al administrador.
+         </div>
+       )}
+
+       {user?.isBlocked && (
+         <div className="score-lock-banner">
+           Tu cuenta está bloqueada por el administrador. Puedes ver el juego pero no jugar.
+         </div>
+       )}
+
+       {user?.isAdmin && (
+         <div className="admin-info-banner">
+           Modo administrador: Solo puedes observar el juego.
+         </div>
+       )}
+
+       {message && <div className="message">{message}</div>}
+
+       {/* Tablero de juego */}
+       <div className="game-board">
+         {memoizedBoard}
+       </div>
+
+       {/* Jugador actual */}
+       {currentPlayer && (
+         <div className="current-player">
+           Jugador actual: <span className="current-player-name">{currentPlayer.username}</span>
+         </div>
+       )}
+
+       {/* Lista de jugadores conectados */}
+       <div className="players-section">
+         <h3>Jugadores conectados</h3>
+         <PlayerList players={players} currentPlayerId={currentPlayer?.id} />
+       </div>
+
+       {showAdminModal && (
+         <AdminButton
+           onClose={() => setShowAdminModal(false)}
+           socket={socket}
+         />
+       )}
+
+       {/* Botón de WhatsApp */}
+       <WhatsAppButton phoneNumber="5492945552523" />
+
+       {/* CAMBIO: Modal permanente que no se puede cerrar + botón de cerrar sesión */}
+       {showPermanentModal && (
+         <div className="permanent-modal-overlay">
+           <div className="permanent-modal">
+             <div className="modal-content">
+               <h2>¡Gracias por jugar!</h2>
+               <p>Para jugar en nuestro juego real escríbenos en WhatsApp y te brindaremos toda la información</p>
+               <div className="whatsapp-contact">
+                 <a 
+                   href="https://wa.me/5492945552523" 
+                   target="_blank" 
+                   rel="noopener noreferrer"
+                   className="whatsapp-link"
+                 >
+                   📱 Contactar por WhatsApp
+                 </a>
+               </div>
+               {/* NUEVO: Botón de cerrar sesión en el modal */}
+               <div className="modal-actions">
+                 <button 
+                   onClick={handleLogout}
+                   className="logout-modal-button"
+                 >
+                   🚪 Cerrar Sesión
+                 </button>
+               </div>
+             </div>
+           </div>
+         </div>
+       )}
+     </div>
+   </>
+ );
 }

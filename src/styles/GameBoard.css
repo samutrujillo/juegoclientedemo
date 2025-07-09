@@ -811,3 +811,102 @@
     font-size: 0.9rem;
   }
 }
+
+/* Estilos para el modal permanente con botón de cerrar sesión */
+.modal-actions {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.logout-modal-button {
+    background: linear-gradient(45deg, #dc3545, #c82333);
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
+    min-width: 160px;
+}
+
+.logout-modal-button:hover {
+    background: linear-gradient(45deg, #c82333, #a71e2a);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(220, 53, 69, 0.4);
+}
+
+.logout-modal-button:active {
+    transform: translateY(0);
+}
+
+/* Actualizar el contador de selecciones para 5 fichas */
+.selections-info {
+    text-align: center;
+    font-size: 18px;
+    font-weight: bold;
+    color: #ffffff;
+    margin: 10px 0;
+    padding: 8px 16px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    backdrop-filter: blur(5px);
+}
+
+/* Asegurar que el modal permanente esté siempre al frente */
+.permanent-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000; /* Muy alto para estar siempre visible */
+    backdrop-filter: blur(5px);
+}
+
+.permanent-modal {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 20px;
+    padding: 30px;
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.permanent-modal .modal-content h2 {
+    color: white;
+    margin-bottom: 20px;
+    font-size: 24px;
+}
+
+.permanent-modal .modal-content p {
+    color: rgba(255, 255, 255, 0.9);
+    margin-bottom: 25px;
+    line-height: 1.6;
+}
+
+.whatsapp-link {
+    display: inline-block;
+    background: #25D366;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 25px;
+    text-decoration: none;
+    font-weight: bold;
+    transition: all 0.3s ease;
+    margin-bottom: 20px;
+}
+
+.whatsapp-link:hover {
+    background: #128C7E;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(37, 211, 102, 0.4);
+}
