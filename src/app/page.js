@@ -135,7 +135,7 @@ export default function Home() {
           </div>
           <button type="submit" className="login-button">Entrar</button>
           <a 
-          href="https://juegoclientedemo.onrender.com/"
+          href="https://demoftapp.vercel.app/"
           className="login-button home-button"
           target="_blank"
           rel="noopener noreferrer"
